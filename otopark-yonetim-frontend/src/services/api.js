@@ -1,8 +1,8 @@
 import axios from 'axios';
 
-// Eğer canlıdaysak Render adresini, değilsek localhost'u kullan
+// Canlıdaysak Render adresini, değilsek Localhost'u kullan
 const BASE_URL = process.env.NODE_ENV === 'production' 
-  ? 'https://senin-backend-isin-buraya-gelecek.onrender.com' // <-- Bunu deploy edince güncelleyeceğiz
+  ? 'https://otopark-backend.onrender.com' // <-- BURAYA KENDİ RENDER LİNKİNİ YAPIŞTIR (sonunda /api OLMASIN)
   : 'http://localhost:3000';
 
 const api = axios.create({
