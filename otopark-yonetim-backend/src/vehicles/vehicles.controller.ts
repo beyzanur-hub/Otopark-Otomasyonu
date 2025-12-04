@@ -22,6 +22,15 @@ export class VehiclesController {
     return this.vehiclesService.findOne(+id);
   }
 
+  // --- DÜZELTİLEN KISIM BURASI (SON HALİ) ---
+  // Tarayıcıdan çalışmaz, uygulamanın içinden çağrılmalıdır.
+  // Bu standartlara uygun, kalıcı çözümdür.
+  @Patch(':id/exit')
+  exitVehicle(@Param('id') id: string) {
+    return this.vehiclesService.exitParking(+id);
+  }
+  // ------------------------------------------
+
   @Patch(':id')
   update(@Param('id') id: string, @Body() updateVehicleDto: UpdateVehicleDto) {
     return this.vehiclesService.update(+id, updateVehicleDto);

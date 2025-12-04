@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreateVehicleDto } from './dto/create-vehicle.dto';
@@ -11,49 +11,70 @@ export class VehiclesService {
   constructor(
     @InjectRepository(Vehicle)
     private vehicleRepository: Repository<Vehicle>,
-    
-    @InjectRepository(User) // Kullanıcıyı kontrol etmek için buna da ihtiyacımız var
+    @InjectRepository(User)
     private userRepository: Repository<User>,
   ) {}
 
-  // ARAÇ EKLEME
-  async create(createVehicleDto: CreateVehicleDto) {
-    // 1. Önce böyle bir kullanıcı var mı diye bak
-    const user = await this.userRepository.findOne({ where: { id: createVehicleDto.userId } });
+  // 1. ARAÇ EKLEME
+  async create(createVehicleDto: CreateVehicleDto): Promise<Vehicle> {
+    
+    // KONTROL: Aynı plaka (plateNumber) içeride mi?
+    const existingVehicle = await this.vehicleRepository.findOne({
+      where: { 
+        plateNumber: createVehicleDto.plateNumber, // <-- DÜZELDİ
+        isParked: true 
+      }
+    });
+
+    if (existingVehicle) {
+      throw new BadRequestException(`Bu araç (${createVehicleDto.plateNumber}) zaten otoparkta!`);
+    }
+
+    const user = await this.userRepository.findOne({
+      where: { id: createVehicleDto.userId },
+    });
+
     if (!user) {
       throw new NotFoundException('Kullanıcı bulunamadı!');
     }
 
-    // 2. Aracı oluştur ve kullanıcıyı içine koy
     const newVehicle = this.vehicleRepository.create({
       ...createVehicleDto,
-      user: user, // İlişkiyi burada kuruyoruz
+      user: user,
+      isParked: true, 
     });
 
-    return await this.vehicleRepository.save(newVehicle);
+    return this.vehicleRepository.save(newVehicle);
   }
 
-  // TÜM ARAÇLARI GETİR
-  async findAll() {
-    return await this.vehicleRepository.find({ relations: ['user'] }); // Sahibini de göster
+  async findAll(): Promise<Vehicle[]> {
+    return this.vehicleRepository.find({ relations: ['user'] });
   }
 
-  // TEK ARAÇ GETİR
-  async findOne(id: number) {
-    return await this.vehicleRepository.findOne({ 
+  async findOne(id: number): Promise<Vehicle> {
+    const vehicle = await this.vehicleRepository.findOne({
       where: { id },
-      relations: ['user'] 
+      relations: ['user'],
     });
+    if (!vehicle) throw new NotFoundException(`Vehicle #${id} not found`);
+    return vehicle;
   }
 
-  // GÜNCELLE
-  async update(id: number, updateVehicleDto: UpdateVehicleDto) {
+  async update(id: number, updateVehicleDto: UpdateVehicleDto): Promise<Vehicle> {
     await this.vehicleRepository.update(id, updateVehicleDto);
     return this.findOne(id);
   }
 
-  // SİL
-  async remove(id: number) {
+  async exitParking(id: number): Promise<Vehicle> {
+    const vehicle = await this.findOne(id);
+    if (!vehicle.isParked) throw new BadRequestException('Bu araç zaten çıkış yapmış!');
+    
+    vehicle.isParked = false;
+    await this.vehicleRepository.save(vehicle);
+    return vehicle;
+  }
+
+  async remove(id: number): Promise<{ message: string }> {
     await this.vehicleRepository.delete(id);
     return { message: `Araç #${id} silindi.` };
   }

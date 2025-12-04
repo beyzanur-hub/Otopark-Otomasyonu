@@ -22,89 +22,104 @@ export class ParkRecordsService {
 
   // --- OTOPARKA GİRİŞ İŞLEMİ ---
   async create(dto: CreateParkRecordDto) {
-    // 1. Araç var mı?
-    const vehicle = await this.vehicleRepo.findOne({ where: { id: dto.vehicleId } });
-    if (!vehicle) throw new NotFoundException('Araç bulunamadı!');
+    
+    // 1. Araç var mı? (plateNumber ile ara)
+    let vehicle = await this.vehicleRepo.findOne({ 
+        where: { plateNumber: dto.plateNumber } 
+    });
 
-    // 2. Otopark yeri var mı?
+    // EĞER ARAÇ YOKSA -> OTOMATİK OLUŞTUR
+    if (!vehicle) {
+      vehicle = this.vehicleRepo.create({
+        plateNumber: dto.plateNumber,
+        model: 'Bilinmiyor',
+        isParked: true,
+        // user: null satırını SİLDİK. Yazmasak da veritabanı boş bırakır.
+      });
+      await this.vehicleRepo.save(vehicle);
+    } else {
+      // ARAÇ VARSA -> Zaten içeride mi?
+      if (vehicle.isParked) {
+        throw new BadRequestException(`Bu araç (${vehicle.plateNumber}) zaten otoparkta görünüyor!`);
+      }
+      vehicle.isParked = true;
+      await this.vehicleRepo.save(vehicle);
+    }
+
+    // 2. Otopark yeri kontrolü
     const spot = await this.spotRepo.findOne({ where: { id: dto.parkingSpotId } });
     if (!spot) throw new NotFoundException('Otopark yeri bulunamadı!');
 
-    // 3. KRİTİK KONTROL: Yer dolu mu?
     if (spot.isOccupied) {
       throw new BadRequestException(`Seçilen yer (${spot.spotName}) şu an dolu!`);
     }
 
-    // 4. Tarifeleri bul (Çoka çok ilişki)
-    // const tariffs = await this.tariffRepo.findByIds(dto.tariffIds); // Eski sürüm
+    // 3. Tarifeleri bul
     const tariffs = await this.tariffRepo.findBy({
-        id: In(dto.tariffIds),
+      id: In(dto.tariffIds),
     });
 
-    // 5. Kaydı Oluştur
+    // 4. Kaydı Oluştur
     const newRecord = this.parkRecordRepo.create({
-      entryTime: new Date(), // Şu anın saati
+      entryTime: new Date(),
       vehicle: vehicle,
       parkingSpot: spot,
       tariffs: tariffs,
     });
 
-    // 6. Yeri "DOLU" olarak işaretle ve kaydet
+    // 5. Yeri Dolu Yap
     spot.isOccupied = true;
     await this.spotRepo.save(spot);
 
     return await this.parkRecordRepo.save(newRecord);
   }
 
-  // --- OTOPARKTAN ÇIKIŞ İŞLEMİ (CHECK-OUT) ---
-  // Standart update yerine özel bir metod yazıyoruz
+  // --- ÇIKIŞ İŞLEMİ ---
   async checkOut(id: number) {
-    // 1. Kaydı bul (Tarifeleriyle birlikte gelmeli ki fiyat hesaplayalım)
     const record = await this.parkRecordRepo.findOne({
       where: { id },
-      relations: ['tariffs', 'parkingSpot'],
+      relations: ['tariffs', 'parkingSpot', 'vehicle'], 
     });
 
     if (!record) throw new NotFoundException('Kayıt bulunamadı');
     if (record.exitTime) throw new BadRequestException('Bu araç zaten çıkış yapmış!');
 
-    // 2. Çıkış saatini ayarla
     record.exitTime = new Date();
-
-    // 3. Süreyi hesapla (Milisaniye farkını saate çevir)
+    
+    // Süre Hesaplama
     const diffMs = record.exitTime.getTime() - record.entryTime.getTime();
-    const diffHours = Math.abs(diffMs / 36e5); // 1 saat = 36e5 ms. 
-    // Örnek: 15 dakika kaldıysa 0.25 saat eder. En az 1 saat diyelim:
+    const diffHours = Math.abs(diffMs / 36e5); 
     const billableHours = Math.ceil(diffHours) || 1; 
 
-    // 4. Fiyat Hesapla (Seçilen tarifelerin toplamı * saat)
-    // Örn: Standart(50 TL) + VIP(20 TL) = 70 TL * 2 Saat = 140 TL
+    // Ücret Hesaplama
     let hourlyRate = 0;
-    record.tariffs.forEach(t => hourlyRate += Number(t.pricePerHour));
-    
+    if (record.tariffs) {
+        record.tariffs.forEach(t => hourlyRate += Number(t.pricePerHour));
+    }
     record.totalPrice = hourlyRate * billableHours;
 
-    // 5. Yeri tekrar "BOŞ" yap
-    const spot = record.parkingSpot;
-    spot.isOccupied = false;
-    await this.spotRepo.save(spot);
+    // Yeri Boşa Çıkar
+    if (record.parkingSpot) {
+        const spot = record.parkingSpot;
+        spot.isOccupied = false;
+        await this.spotRepo.save(spot);
+    }
 
-    // 6. Kaydı güncelle
+    // Aracı Dışarıda Göster
+    if (record.vehicle) {
+        const vehicle = record.vehicle;
+        vehicle.isParked = false;
+        await this.vehicleRepo.save(vehicle);
+    }
+
     return await this.parkRecordRepo.save(record);
   }
 
-  // --- LİSTELEME ---
   async findAll() {
-    return await this.parkRecordRepo.find({
-      relations: ['vehicle', 'parkingSpot', 'tariffs'], // Her şeyi göster
-      order: { entryTime: 'DESC' } // En son giren en üstte
-    });
+    return this.parkRecordRepo.find({ relations: ['vehicle', 'parkingSpot', 'tariffs'], order: { entryTime: 'DESC' } });
   }
 
   async findOne(id: number) {
-    return await this.parkRecordRepo.findOne({
-        where: { id },
-        relations: ['vehicle', 'parkingSpot', 'tariffs']
-    });
+    return this.parkRecordRepo.findOne({ where: { id }, relations: ['vehicle', 'parkingSpot', 'tariffs'] });
   }
 }

@@ -1,12 +1,14 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { IsNotEmpty, IsArray, IsString, IsNumber } from 'class-validator';
 
 export class CreateParkRecordDto {
-  @ApiProperty({ example: 1, description: 'Park eden Aracın ID numarası' })
-  vehicleId: number;
+  @IsString()
+  @IsNotEmpty()
+  plateNumber: string; // <-- GERİ GELDİ: plateNumber
 
-  @ApiProperty({ example: 1, description: 'Park edilecek yerin (A-1) ID numarası' })
+  @IsNumber()
+  @IsNotEmpty()
   parkingSpotId: number;
 
-  @ApiProperty({ example: [1, 2], description: 'Uygulanacak Tarifelerin ID listesi (Örn: [1] Standart)' })
-  tariffIds: number[]; // Çoka-Çok ilişki olduğu için liste (array) olarak alıyoruz
+  @IsArray()
+  tariffIds: number[];
 }
